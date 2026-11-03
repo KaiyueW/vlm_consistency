@@ -7,7 +7,7 @@ Variants:
     text  : the question text is the prompt, with no image
     image : the question image is the input, with no text prompt (unless --image_prompt is set)
 
-Outputs: outputs/<model>/<task>/<id>_text.npy and <id>_image.npy (0-d string arrays).
+Outputs: outputs/<model>/<task>/<id>_text.txt and <id>_image.txt (0-d string arrays).
 Re-running skips files that already exist, so an interrupted run can be resumed.
 """
 import argparse
@@ -50,7 +50,7 @@ def main():
 
         for n, item in enumerate(items):
             for variant in args.variants:
-                path = os.path.join(out_dir, f"{item['id']}_{variant}.npy")
+                path = os.path.join(out_dir, f"{item['id']}_{variant}.txt")
                 if os.path.exists(path):
                     continue
                 try:
