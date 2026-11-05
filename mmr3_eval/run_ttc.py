@@ -20,11 +20,6 @@ import json
 import os
 import traceback
 
-# <changed> new: send the Hugging Face / pip caches to the lab research disk (the home quota is full).
-# This must run before transformers is imported. A value already set in the shell wins.
-_RAID_CACHE = "/ubc/cs/research/nlp-raid/students/kwang67/.cache"
-os.environ.setdefault("HF_HOME", _RAID_CACHE + "/huggingface")
-os.environ.setdefault("XDG_CACHE_HOME", _RAID_CACHE)
 
 import torch
 from PIL import Image
@@ -34,7 +29,6 @@ from ttc_utils import VARIANTS, adapt_sample, build_inputs
 from vlm_models import MODELS, get_model
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
 
 def write_text(path, text):
     with open(path, "w", encoding="utf-8") as fh:
@@ -84,7 +78,7 @@ def main():
             params.append(p)
     assert params, "no lm_head parameter found (tied embeddings?)"
     print(f"trainable parameters: {sum(p.numel() for p in params):,}")
-    # <changed> weights (and a fresh optimizer, inside adapt_sample) are reset after every sample, in-process
+    # weights are reset after every sample, in-process
     snapshot = [p.detach().clone() for p in params]
 
     tasks = list_tasks(args.data_root) if args.task == "all" else [args.task]

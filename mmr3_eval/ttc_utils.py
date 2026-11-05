@@ -13,12 +13,12 @@ PAD_LEN = 10  # TTC keeps at most 10 answer tokens as the supervision target
 
 
 class HLoss(nn.Module): # agreement loss
-    """Symmetric cross-entropy between two output distributions. Copied from TTC, unchanged."""
+    """Symmetric cross-entropy between two output distributions."""
 
     def forward(self, x1, x2):
         p1 = F.softmax(x1, dim=-1)
         p2 = F.softmax(x2, dim=-1)
-        ce_1_2 = F.cross_entropy(x1, p2)
+        ce_1_2 = F.cross_entropy(x1, p2) # （logits, target distribution)
         ce_2_1 = F.cross_entropy(x2, p1)
         return (ce_1_2 + ce_2_1) / 2.0
 
@@ -59,7 +59,6 @@ def generate_answer(model, tokenizer, inputs, max_new_tokens=100):
     new_tokens = out[0][inputs["input_ids"].shape[1]:] # only decode the output answers.
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
-## till here!
 
 def label_token_ids(tokenizer, text, device):
     """Pseudo-label string -> token ids (1, n), truncated to PAD_LEN."""
@@ -74,18 +73,14 @@ def forward_on_label(model, inputs, label_ids):
       ce           cross-entropy of the pseudo-label tokens given the prompt (the Pseudo-Label Consistency term)
       mean_logits  (1, V) logits averaged over the answer positions (the input of the Agreement term, as in TTC)
     """
-    # <changed> TTC appends 10 pad tokens after the prompt and puts the label tokens at those positions, and for
-    # llava passes `images=` (not a HF argument name) instead of pixel_values. Here the label tokens are appended
-    # right after the prompt (proper teacher forcing) and every processor input (pixel_values, image_grid_thw, ...)
-    # is passed through, so the image really enters the loss. The loss is computed here, not by HF `labels=`.
     prompt_ids = inputs["input_ids"]
     P, n = prompt_ids.shape[1], label_ids.shape[1]
     fwd = dict(inputs)
     fwd["input_ids"] = torch.cat([prompt_ids, label_ids], dim=1)
     fwd["attention_mask"] = torch.ones_like(fwd["input_ids"])
     out = model(**fwd, use_cache=False, return_dict=True)
-    pred = out.logits[0, P - 1 : P - 1 + n]  # the logits that predict the n label tokens
-    ce = F.cross_entropy(pred, label_ids[0])
+    pred = out.logits[0, P - 1 : P - 1 + n]  # the logits that predict the n label tokens, (1, P+n, V)->(n, V)
+    ce = F.cross_entropy(pred, label_ids[0]) # ce of the predicted answer and the pseudo labels.
     return ce, pred.mean(0, keepdim=True)
 
 
@@ -97,7 +92,7 @@ def select_best_step(step_answers, pseudo_label):
     """
     best_avg, best_i = -1.0, 0
     for i, answers in enumerate(step_answers):
-        cand = [answers[v] for v in VARIANTS] + [pseudo_label]
+        cand = [answers[v] for v in VARIANTS] + [pseudo_label] # decoded answers and the shared pseudo labels should be the candidates
         sims = [
             fuzz.token_set_ratio(cand[a], cand[b]) / 100.0
             for a in range(len(cand))
@@ -112,13 +107,6 @@ def select_best_step(step_answers, pseudo_label):
 def adapt_sample(model, tokenizer, inputs, params, snapshot, *, anchor="text", alpha=1.0, beta=1.0,
                  steps=4, lr=5e-4, weight_decay=0.01, max_new_tokens=100):
     """TTC for ONE sample. `inputs` = {"text": ..., "image": ...} (outputs of build_inputs).
-
-    1. greedy answers with the original model          -> result["ori"]
-    2. pseudo-label = the `anchor` variant's answer    (<changed>: TTC takes the most frequent answer of 3 variants)
-    3. `steps` x [loss = alpha*agreement + beta*pseudo-label; AdamW step on lm_head; regenerate]
-    4. pick the most self-consistent step               -> result["final"]
-    The trainable `params` are restored from `snapshot` before returning, so samples never influence each other
-    (TTC gets this by starting a fresh process per sample).
     """
     ori = {v: generate_answer(model, tokenizer, inputs[v], max_new_tokens) for v in VARIANTS}
     pseudo = ori[anchor]
@@ -133,7 +121,7 @@ def adapt_sample(model, tokenizer, inputs, params, snapshot, *, anchor="text", a
     entropy_loss = HLoss()
     optimizer = torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
     try:
-        for step in range(steps):
+        for step in range(steps): # try 4 steps
             ce_text, logits_text = forward_on_label(model, inputs["text"], label_ids)
             ce_image, logits_image = forward_on_label(model, inputs["image"], label_ids)
 
@@ -153,7 +141,7 @@ def adapt_sample(model, tokenizer, inputs, params, snapshot, *, anchor="text", a
             result["losses"].append({"agree": loss_agree.item(), "pseudo": loss_pl.item(), "total": loss.item()})
             result["steps"].append({v: generate_answer(model, tokenizer, inputs[v], max_new_tokens) for v in VARIANTS})
     finally:
-        with torch.no_grad():
+        with torch.no_grad(): # changed to original after this update.
             for p, saved in zip(params, snapshot):
                 p.copy_(saved)
                 p.grad = None
