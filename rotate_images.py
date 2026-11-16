@@ -34,7 +34,8 @@ def main():
         with Image.open(image_path) as image:
             rotated = image.transpose(Image.Transpose.ROTATE_270)
             output_path = output_dir / image_path.name
-            rotated.save(output_path)
+            #rotated.save(output_path)
+            rotated.save(output_path, quality=95, subsampling=0)
 
     print(f"Done! Rotated images saved to {output_dir}")
 
