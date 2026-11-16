@@ -1,7 +1,7 @@
 """Runs a VLM on every item of a task, once per variant, and saves the raw outputs.
 
     python run_inference.py --model llava --task logiqa
-    python run_inference.py --model qwen  --task all --limit 50
+    python run_inference.py --model qwen  --task logiqa --limit 10
 
 Variants:
     text  : the question text is the prompt, with no image

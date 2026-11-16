@@ -1,7 +1,7 @@
 """Runs TTC (test-time consistency adaptation) on the 2-variant task (text prompt vs image) and saves the outputs
 in the same layout run_inference.py uses, so evaluate.py scores them unchanged.
 
-    python run_ttc.py --model llava --task logiqa --alpha 1 --beta 1 --steps 4 --limit 20     # smoke test
+    python run_ttc.py --model llava --task logiqa --alpha 1 --beta 1 --steps 4 --limit 10    # smoke test
     python run_ttc.py --model qwen  --task all    --alpha 1 --beta 1 --steps 4
 
 Outputs (out_root defaults to ./outputs):
