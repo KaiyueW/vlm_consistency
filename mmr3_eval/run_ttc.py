@@ -46,6 +46,9 @@ def main():
     ap.add_argument("--steps", type=int, default=4, help="adaptation steps per sample (TTC -u)")
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--weight_decay", type=float, default=0.01)
+        # <changed> new: TTC fixes the label length to 10 tokens; here it can be changed (default 10 = as in TTC)
+    ap.add_argument("--label_len", type=int, default=10, help="max number of pseudo-label tokens used for training")
+    ap.add_argument("--add_eos", action="store_true", help="append the end token to a complete (not truncated) label")
     ap.add_argument("--anchor", default="text", choices=VARIANTS,
                     help="which variant's answer is the pseudo-label (default: text)")
     ap.add_argument("--dtype", default="float32", choices=["float32", "bfloat16", "float16"],
@@ -62,6 +65,13 @@ def main():
     tag = f"{args.model}_ttc_a{args.alpha}_b{args.beta}_u{args.steps}"
     if args.anchor != "text":
         tag += f"_anchor-{args.anchor}"
+        # <changed> new: non-default settings go into the folder name, so runs with different settings never share a folder
+    if args.label_len != 10:
+        tag += f"_L{args.label_len}"
+    if args.add_eos:
+        tag += "_eos"
+    if args.lr != 5e-4:
+        tag += f"_lr{args.lr}"
     ori_tag = f"{args.model}_ttc_ori"
 
     # <changed> the model is loaded once and reused for every sample (TTC starts a new process per sample)
@@ -110,6 +120,7 @@ def main():
                     model, processor.tokenizer, inputs, params, snapshot,
                     anchor=args.anchor, alpha=args.alpha, beta=args.beta, steps=args.steps,
                     lr=args.lr, weight_decay=args.weight_decay, max_new_tokens=args.max_new_tokens,
+                    label_len=args.label_len, add_eos=args.add_eos
                 )
 
                 for v in VARIANTS:
