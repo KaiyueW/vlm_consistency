@@ -78,6 +78,9 @@ def forward_on_label(model, inputs, label_ids):
     fwd = dict(inputs)
     fwd["input_ids"] = torch.cat([prompt_ids, label_ids], dim=1)
     fwd["attention_mask"] = torch.ones_like(fwd["input_ids"])
+    for key in ("mm_token_type_ids", "token_type_ids"):
+        if key in fwd and torch.is_tensor(fwd[key]) and fwd[key].shape[1] == P:
+            fwd[key] = torch.cat([fwd[key], fwd[key].new_zeros(fwd[key].shape[0], n)], dim=1)
     out = model(**fwd, use_cache=False, return_dict=True)
     pred = out.logits[0, P - 1 : P - 1 + n]  # the logits that predict the n label tokens, (1, P+n, V)->(n, V)
     ce = F.cross_entropy(pred, label_ids[0]) # ce of the predicted answer and the pseudo labels.
