@@ -132,19 +132,20 @@ def adapt_sample(model, tokenizer, inputs, params, snapshot, *, anchor="text", a
                  steps=4, lr=5e-4, weight_decay=0.01, max_new_tokens=100, label_len=PAD_LEN, add_eos=False):
     """TTC for ONE sample. `inputs` = {"text": ..., "image": ...} (outputs of build_inputs).
 
-    1. greedy answers with the original model          -> result["ori"]
-    2. pseudo-label = the `anchor` variant's answer    (<changed>: TTC takes the most frequent answer of 3 variants)
-    3. `steps` x [loss = alpha*agreement + beta*pseudo-label; AdamW step on lm_head; regenerate]
-    4. pick the most self-consistent step               -> result["final"]
+1. greedy answers with the original model          -> result["ori"]
+2. pseudo-label = the `anchor` variant's answer    (<changed>: TTC takes the most frequent answer of 3 variants)
+3. `steps` x [loss = alpha*agreement + beta*pseudo-label; AdamW step on lm_head; regenerate]
+4. pick the most self-consistent step               -> result["final"]
     The trainable `params` are restored from `snapshot` before returning, so samples never influence each other
     (TTC gets this by starting a fresh process per sample).
     """
     ori = {v: generate_answer(model, tokenizer, inputs[v], max_new_tokens) for v in VARIANTS}
     pseudo = ori[anchor]
+    
+    # 【修改处 1】将原始未更新的 ori 作为 steps[0] 存入，确保 step 0 就是初始状态
     result = {"ori": ori, "pseudo_label": pseudo, "anchor": anchor, "alpha": alpha, "beta": beta,
-              "steps": [], "losses": [], "best_step": -1, "final": ori, "note": ""}
+              "steps": [ori], "losses": [], "best_step": -1, "final": ori, "note": ""}
 
-    # <changed> label_len / add_eos are passed through (see label_token_ids)
     label_ids = label_token_ids(tokenizer, pseudo, inputs["text"]["input_ids"].device, label_len, add_eos)
     if label_ids.shape[1] == 0:
         result["note"] = "empty pseudo-label: adaptation skipped, final = original answers"
@@ -166,11 +167,14 @@ def adapt_sample(model, tokenizer, inputs, params, snapshot, *, anchor="text", a
             if not torch.isfinite(loss):
                 result["note"] = f"non-finite loss at step {step}: stopped early"
                 break
+                
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            optimizer.step()
+            optimizer.step()  # <--- 梯度更新
 
             result["losses"].append({"agree": loss_agree.item(), "pseudo": loss_pl.item(), "total": loss.item()})
+            
+            # 【修改处 2】更新后生成的作为后续步骤（step 1, step 2...）
             result["steps"].append({v: generate_answer(model, tokenizer, inputs[v], max_new_tokens) for v in VARIANTS})
     finally:
         with torch.no_grad():
