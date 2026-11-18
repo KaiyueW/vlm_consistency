@@ -97,6 +97,7 @@ def main():
             if os.path.exists(meta_path):
                 continue
             try:
+                torch.cuda.reset_peak_memory_stats()
                 image = Image.open(item["image_path"]).convert("RGB")
                 raw = {"text": (None, args.text_prefix + item["question"]),
                        "image": (image, args.image_prompt or None)}
@@ -120,6 +121,7 @@ def main():
                 first, last = (res["losses"][0], res["losses"][-1]) if res["losses"] else ({}, {})
                 print(f"  {item['id']}: pseudo={res['pseudo_label']!r} best_step={res['best_step']} "
                       f"loss {first.get('total', float('nan')):.3f} -> {last.get('total', float('nan')):.3f} {res['note']}")
+                print(f"  peak GPU mem: {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB")
             except Exception:
                 with open(os.path.join(out_dir, "errors.txt"), "a") as fh:
                     fh.write(f"{item['id']}\n{traceback.format_exc()}\n")
