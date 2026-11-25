@@ -56,7 +56,14 @@ def last_number(o):
 
 def lead_letter(o):
     m = re.match(r"^\W*([a-z])(?:[.):,]|\s*$)", o.strip())
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    # <changed> also read "The correct answer is B. ...", "... best represented by option A: ...", "The assumption is: C. ..."
+    # (the letter must be followed by . ) : , or the end, so "the answer is a total of 90" is NOT read as the letter a)
+    m = re.findall(r"(?:answer|option|choice)\s*(?:is)?\s*[:\s]\s*\(?([a-d])(?:[.):,]|\s*$)", o)
+    if not m:
+        m = re.findall(r"\bis:\s*\(?([a-d])[.):]", o)
+    return m[-1] if m else None
 
 
 def is_correct(gt, out):
