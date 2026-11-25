@@ -30,7 +30,7 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for image_path in input_dir.glob("*.jpg"):
+    for image_path in input_dir.glob("*.png"):
         with Image.open(image_path) as image:
             rotated = image.transpose(Image.Transpose.ROTATE_270)
             output_path = output_dir / image_path.name
