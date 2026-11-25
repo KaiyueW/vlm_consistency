@@ -26,16 +26,7 @@ V = ["text", "image"]
 PAIRS = [(0, 1), (0, 2), (1, 2)]
 
 
-def same(a, b):
-    """Do two outputs give the same answer?"""
-    ka, kb = E.key(a), E.key(b)
-    if ka[0] != kb[0]:
-        return False
-    if ka[0] == "N":
-        return math.isclose(ka[1], kb[1], rel_tol=1e-3, abs_tol=1e-9)
-    if ka[0] == "L":
-        return ka[1] == kb[1]
-    return fuzz.ratio(ka[1], kb[1]) >= 90
+same = E.same  # <changed> shared with eval_strict.py / evaluate.py
 
 
 def score(c, rule):

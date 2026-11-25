@@ -11,9 +11,9 @@ So here the GT type decides how an output is read:
   GT = a number     -> \\boxed{} if present, else the LAST number in the output must equal it to the GT's own number of
                        decimals, rounded or truncated (commas, $, fractions ok; a fraction GT allows a 0.1% decimal)
   GT = a word/other -> all the GT words (stemmed) appear in the output, not preceded by "not"
-Agreement (no GT needed): both outputs reduce to the same key (leading letter, else last number, else text).
+Agreement (no GT needed): same(a, b) = same letter, or numbers within 0.1%, or near-identical text.
 """
-import argparse, math, os, re
+import argparse, difflib, math, os, re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:/\d+)?")
@@ -108,6 +108,10 @@ def is_correct(gt, out):
         d = len(gs.split(".")[1]) if "." in gs else 0
         f = 10 ** d
         return abs(round(ov * f) / f - gv) < 0.5 / f or abs(math.trunc(ov * f + 1e-9) / f - gv) < 0.5 / f
+    # <changed> GT mixing digits and text ("40 miles", "2x+3"): the digits matter, so require the whole GT (spaces ignored)
+    if re.search(r"\d", g):
+        sq = lambda x: "".join(clean(x).replace(",", "").split())
+        return sq(g) in sq(o)
     # <changed> word answers ("diverge", "converge absolutely"): compare word STEMS, so "Converges absolutely." and
     # "Conditionally convergent" match "converge absolutely" / "converge conditionally", but a partial answer
     # ("Converges" for "converge absolutely") does not. A "not" right before the answer word makes it wrong.
@@ -127,6 +131,19 @@ def key(out):
         return ("L", l)
     n = last_number(o)
     return ("N", round(n, 6)) if n is not None else ("T", " ".join(o.split())[:80])
+
+
+def same(a, b):
+    """<changed> new: do two outputs give the SAME answer? (same letter / numbers within 0.1% / near-identical text)
+    Shared by eval_strict.py, evaluate.py (agree_ans) and reselect.py, so agreement means the same thing everywhere."""
+    ka, kb = key(a), key(b)
+    if ka[0] != kb[0]:
+        return False
+    if ka[0] == "N":
+        return math.isclose(ka[1], kb[1], rel_tol=1e-3, abs_tol=1e-9)
+    if ka[0] == "L":
+        return ka[1] == kb[1]
+    return difflib.SequenceMatcher(None, ka[1], kb[1]).ratio() >= 0.9
 
 
 def score_folder(folder, items):
@@ -156,7 +173,7 @@ def stats(items, outs):
     for it in items:
         o = outs[it["id"]]
         ct, ci = is_correct(it["gt"], o[0]), is_correct(it["gt"], o[1])
-        t += ct; im += ci; both += ct and ci; ag += key(o[0]) == key(o[1]); n += 1
+        t += ct; im += ci; both += ct and ci; ag += same(o[0], o[1]); n += 1
     return n, t, im, ag, both
 
 

@@ -11,6 +11,8 @@ Per item there are two outputs (text-input, image-input). Metrics:
     ss              the same cosine similarity, unthresholded
     exact_agree     the two outputs are identical (stricter than the 0.7 threshold)
     hmean           TTC's Hmean = harmonic mean of [(soft + ss_gt)/2, (consistency + ss)/2], 0-100
+    acc_strict      <changed> new: answer-aware accuracy (letter / number / word, see eval_strict.py)
+    agree_ans       <changed> new: text and image reduce to the SAME extracted answer (letter / number / text)
 Also reported: the failure subset (items where not both outputs are correct), which shows
 whether failures are stable or flipping between text and image.
 """
@@ -25,6 +27,9 @@ from fuzzywuzzy import fuzz
 from sentence_transformers import SentenceTransformer
 
 from dataset_utils import list_tasks, load_task
+# <changed> new: answer-aware scoring, shared with eval_strict.py (the plain `gt in out` and whole-string
+# comparisons do not fit "A" vs "A. option text", nor numbers like 15.052 vs 15.0525555...)
+from eval_strict import is_correct as is_correct_strict, same as answer_same
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VARIANTS = ["text", "image"]
@@ -63,6 +68,9 @@ def evaluate_task(args, model, task, sbert):
 
     correct = np.array([[is_correct(g, o) for o in pair] for g, pair in zip(gts, outs)], float) #(n, 2)
     soft = np.array([[fuzz.token_set_ratio(g, o) >= 85 for o in pair] for g, pair in zip(gts, outs)], float) #(n, 2)
+    # <changed> new: strict accuracy and answer agreement, computed on the raw (not lowercased) outputs
+    strict = np.array([[is_correct_strict(it["answer"], o) for o in pair] for it, pair in zip(items, raw)], float)  # (n, 2)
+    agree_ans = np.array([answer_same(pair[0], pair[1]) for pair in raw], float)  # (n,)
 
     flat = [o for pair in outs for o in pair] #(2n)
     e_out = sbert.encode(flat, convert_to_tensor=True, normalize_embeddings=True, batch_size=64)
@@ -79,6 +87,9 @@ def evaluate_task(args, model, task, sbert):
         "soft_text": soft[:, 0], "soft_image": soft[:, 1], "soft_mean": soft.mean(1),
         "ss_gt_text": ss_gt[:, 0], "ss_gt_image": ss_gt[:, 1], "ss_gt_mean": ss_gt.mean(1),
         "consistency_acc": consistent, "consistency_sim": sim, "exact_agree": exact,
+        # <changed> new
+        "acc_strict_text": strict[:, 0], "acc_strict_image": strict[:, 1], "acc_strict_mean": strict.mean(1),
+        "agree_ans": agree_ans, "both_strict": strict.all(1).astype(float),
     }
     metrics = {k: float(v.mean()) for k, v in per_item.items()}
 
@@ -101,6 +112,7 @@ def evaluate_task(args, model, task, sbert):
     np.save(os.path.join(out_dir, "metrics.npy"), {
         "correct": correct, "soft_correct": soft, "consistent_gt": ss_gt,
         "consistency_sim": sim, "ids": [it["id"] for it in items],
+        "strict_correct": strict, "agree_ans": agree_ans,  # <changed> new
     })
 
     with open(os.path.join(out_dir, "metrics.json"), "w") as fh:
@@ -113,8 +125,8 @@ def evaluate_task(args, model, task, sbert):
 def print_summary(s):
     print(f"\n=== {s['model']} / {s['task']}  (n={s['n_items']}) ===")
     for k, v in s["metrics"].items():
-        print(f"{k:14s} {v * 100:6.2f}")
-    print(f"{'hmean':14s} {s['hmean']:6.2f}")
+        print(f"{k:16s} {v * 100:6.2f}")
+    print(f"{'hmean':16s} {s['hmean']:6.2f}")
     print("failure subset:", {k: (round(v, 3) if isinstance(v, float) else v)
                               for k, v in s["failure_subset"].items()})
 
