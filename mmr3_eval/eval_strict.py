@@ -10,7 +10,7 @@ So here the GT type decides how an output is read:
   GT = one letter   -> the output must START with that letter  ("D", "D. Toilet", "(d)")
   GT = a number     -> \\boxed{} if present, else the LAST number in the output must equal it to the GT's own number of
                        decimals, rounded or truncated (commas, $, fractions ok; a fraction GT allows a 0.1% decimal)
-  GT = a word/other -> whole-word match (not preceded by "not")
+  GT = a word/other -> all the GT words (stemmed) appear in the output, not preceded by "not"
 Agreement (no GT needed): both outputs reduce to the same key (leading letter, else last number, else text).
 """
 import argparse, math, os, re
@@ -48,7 +48,17 @@ def to_val(tok):
         return None
 
 
+# <changed> new: a generation that falls into a loop ends in "... wall  4  4  4  4" or "... 5  5  5  5". Cut such a tail
+# (one token repeated 3+ times at the very end) before taking "the last number", otherwise the loop's number is the answer.
+TAIL = re.compile(r"(?:\s+(\S+))(?:\s+\1){2,}\s*$")
+
+
+def strip_loop_tail(o):
+    return TAIL.sub("", o)
+
+
 def last_number(o):
+    o = strip_loop_tail(o)
     m = re.findall(r"\\boxed\{([^{}]*)\}", o)
     nums = NUM.findall(m[-1]) if m else NUM.findall(o)
     return to_val(nums[-1]) if nums else None
@@ -64,6 +74,22 @@ def lead_letter(o):
     if not m:
         m = re.findall(r"\bis:\s*\(?([a-d])[.):]", o)
     return m[-1] if m else None
+
+
+_SUF = ("ically", "ences", "ence", "ents", "ent", "ly", "ing", "ed", "es", "al", "s", "e")
+
+
+def stem(w):
+    """Crude stemmer: converges / converged / convergent -> converg ; absolutely -> absolut ; conditionally -> condition."""
+    w = w.lower()
+    for _ in range(3):
+        for suf in _SUF:
+            if w.endswith(suf) and len(w) - len(suf) >= 4:
+                w = w[: -len(suf)]
+                break
+        else:
+            break
+    return w
 
 
 def is_correct(gt, out):
@@ -82,9 +108,16 @@ def is_correct(gt, out):
         d = len(gs.split(".")[1]) if "." in gs else 0
         f = 10 ** d
         return abs(round(ov * f) / f - gv) < 0.5 / f or abs(math.trunc(ov * f + 1e-9) / f - gv) < 0.5 / f
-    g = clean(g).strip()
-    pat = r"(?<![a-z])(?<!not )(?<!n't )" + re.escape(g) + r"(?:s|d)?(?![a-z])"
-    return re.search(pat, o) is not None
+    # <changed> word answers ("diverge", "converge absolutely"): compare word STEMS, so "Converges absolutely." and
+    # "Conditionally convergent" match "converge absolutely" / "converge conditionally", but a partial answer
+    # ("Converges" for "converge absolutely") does not. A "not" right before the answer word makes it wrong.
+    gt_stems = [stem(w) for w in re.findall(r"[a-z]+", clean(g))]
+    words = re.findall(r"[a-z']+", o)
+    out_stems = [stem(w) for w in words]
+    if not gt_stems or not set(gt_stems) <= set(out_stems):
+        return False
+    first = out_stems.index(gt_stems[0])
+    return not (first > 0 and words[first - 1] in ("not", "n't", "never", "non"))
 
 
 def key(out):
