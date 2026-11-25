@@ -1,6 +1,7 @@
 """Re-choose the best TTC step from the saved _meta.json files (no model, no GPU, takes seconds).
 
-    python reselect.py --rule ans                 # answer-aware agreement (recommended)
+    python reselect.py --rule ans                 # answer-aware agreement, ties broken by fuzz.ratio
+    python reselect.py --rule ans_early           # answer-aware agreement, ties -> EARLIEST step (recommended)
     python reselect.py --rule tie                 # TTC's token_set_ratio, ties broken by the stricter fuzz.ratio
     python reselect.py --src qwen_ttc_a1.0_b1.0_u4_L40 --rule ans
 
@@ -11,6 +12,9 @@ Rules (candidates of a step = text answer, image answer, pseudo-label):
   tie  mean pairwise fuzz.token_set_ratio (TTC's rule); ties -> mean pairwise fuzz.ratio; ties -> earlier step
   ans  <changed> share of the 3 pairs that give the SAME extracted answer (same letter / same number / near-identical
        text), so "A" == "A. option text" and 15.052 == 15.0525555...; ties -> mean pairwise fuzz.ratio; ties -> earlier step
+  ans_early  same agreement share, but ties -> the EARLIEST step (no fuzz.ratio tie-break): among the steps where the
+       answers agree equally well, keep the least adapted one. fuzz.ratio rewards byte-identical strings, which drags
+       samples that already agree at step 0 ("A. text" vs "A") to later, more adapted steps for no benefit.
 """
 import argparse, glob, json, math, os, sys
 
@@ -36,6 +40,8 @@ def same(a, b):
 
 def score(c, rule):
     strict = sum(fuzz.ratio(c[x], c[y]) / 100 for x, y in PAIRS) / 3
+    if rule == "ans_early":
+        return (sum(same(c[x], c[y]) for x, y in PAIRS) / 3, 0.0)
     if rule == "tie":
         return (sum(fuzz.token_set_ratio(c[x], c[y]) / 100 for x, y in PAIRS) / 3, strict)
     return (sum(same(c[x], c[y]) for x, y in PAIRS) / 3, strict)
@@ -53,7 +59,7 @@ def select(steps, pseudo, rule):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default="qwen_ttc_a1.0_b1.0_u4_L40")
-    ap.add_argument("--rule", choices=["tie", "ans"], default="ans")
+    ap.add_argument("--rule", choices=["tie", "ans", "ans_early"], default="ans")
     ap.add_argument("--out_root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs"))
     a = ap.parse_args()
     src, dst = os.path.join(a.out_root, a.src), os.path.join(a.out_root, f"{a.src}_resel_{a.rule}")
